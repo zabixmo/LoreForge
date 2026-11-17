@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoreForge - Gestor de Mundos</title>
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<aside>
+  <div class="brand">⚔️ LoreForge</div>
+  <nav>
+    <button id="nav-wiki" class="active" onclick="switchTab('wiki')">📚 Enciclopedia</button>
+    <button id="nav-map" onclick="switchTab('map')">🗺️ Mapa Interactivo</button>
+    <button id="nav-timeline" onclick="switchTab('timeline')">⏳ Línea de Tiempo</button>
+  </nav>
+  <div class="backup">
+    <small id="status-txt" style="color:var(--muted);font-size:0.75rem;">Guardado automático activo</small>
+    <button class="btn-sm" onclick="exportData()">💾 Descargar Copia (.json)</button>
+    <button class="btn-sm" onclick="document.getElementById('imp-file').click()">📂 Cargar Copia</button>
+    <input type="file" id="imp-file" class="hidden" accept=".json" onchange="importData(event)">
+  </div>
+</aside>
+<main>
+  <section id="tab-wiki">
+<!-- /////////////////////////// -->
+    <div class="top-bar"><h1>Enciclopedia del Mundo</h1><button class="btn-gold" onclick="openEditor()">+ Nuevo Artículo</button></div>
+<!-- ////////////////////////// -->
+    <div id="wiki-list">
+      <div id="folder-bar" class="folder-bar"></div>
+      <div class="controls">
+        <input type="text" id="q-search" style="flex:1;min-width:200px;" placeholder="Buscar..." oninput="renderArticles()">
+        <select id="q-cat" onchange="renderArticles()">
+          <option value="Todos">Todas las categorías</option>
+          <option value="Personaje">👤 Personaje</option><option value="Lugar">🏰 Lugar</option>
+          <option value="Facción">🛡️ Facción</option><option value="Objeto">🗡️ Objeto</option>
+          <option value="Magia">✨ Magia</option><option value="Especie">🐉 Especie</option>
+        </select>
+      </div>
+      <div id="art-grid" class="grid"></div>
+    </div>
+    <div id="wiki-read" class="box hidden">
+      <div style="display:flex;justify-content:space-between;margin-bottom:15px;">
+        <button class="btn-sm" onclick="closeViews()">← Volver</button>
+        <div style="display:flex;gap:10px;"><button class="btn-sm" id="btn-ed">✏️ Editar</button><button class="btn-del" id="btn-dl">🗑️ Borrar</button></div>
+      </div>
+      <span id="r-cat" class="badge"></span><h1 id="r-tit"></h1>
+      <p id="r-sum" style="color:var(--muted);font-style:italic;margin:5px 0 15px;"></p><hr style="border-color:var(--border);">
+      <div id="r-body" class="art-body"></div>
+    </div>
+    <div id="wiki-edit" class="box hidden">
+      <h2 id="ed-head" style="margin-bottom:20px;color:var(--accent);">Crear Artículo</h2>
+      <input type="hidden" id="ed-id">
+      <div class="fg"><label>Título</label><input type="text" id="ed-tit" placeholder="Ej: Reino de Eldoria..."></div>
+      <div class="fg"><label>Categoría</label>
+        <select id="ed-cat">
+          <option value="Personaje">👤 Personaje</option><option value="Lugar">🏰 Lugar</option>
+          <option value="Facción">🛡️ Facción</option><option value="Objeto">🗡️ Objeto</option>
+          <option value="Magia">✨ Magia</option><option value="Especie">🐉 Especie</option>
+        </select>
+      </div>
+      <div class="fg"><label>Resumen corto</label><input type="text" id="ed-sum" placeholder="Descripción breve..."></div>
+<!-- ///////////////////////////// -->
+      <div class="fg">
+        <label>Carpeta o Grupo (Ej: Continente de Eldoria, Gremio de Magos)</label>
+        <input type="text" id="ed-folder" list="folder-list" placeholder="Escribe una carpeta nueva o elige una existente...">
+        <datalist id="folder-list"></datalist>
+      </div>
+      <div class="fg">
+        <label>Insertar imagen dentro del texto (en la posición del cursor)</label>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button type="button" class="btn-sm" onclick="document.getElementById('ed-inline-file').click()">📸 Insertar Imagen en el Texto</button>
+          <input type="file" id="ed-inline-file" class="hidden" accept="image/*" onchange="insertInlineImg(event)">
+        </div>
+      </div>
+
+<!-- //////////////////////////// -->
+      <div class="fg"><label>Contenido (Usa [[Nombre]] para enlazar otro artículo)</label><textarea id="ed-body"></textarea></div>
+      <div style="display:flex;gap:10px;"><button class="btn-gold" onclick="saveArticle()">Guardar</button><button class="btn-sm" onclick="closeViews()">Cancelar</button></div>
+    </div>
+  </section>
+  <section id="tab-map" class="hidden">
+    <div class="top-bar"><h1>Mapa del Mundo</h1><div><button class="btn-gold" onclick="document.getElementById('map-up').click()">🖼️ Subir Mapa</button><input type="file" id="map-up" class="hidden" accept="image/*" onchange="uploadMap(event)"></div></div>
+    <p style="color:var(--muted);margin-bottom:15px;">Sube una imagen y haz <b>clic en cualquier punto</b> para poner un marcador (clic derecho en el pin para borrarlo).</p>
+    <div class="map-box"><p id="map-ph" style="color:var(--muted);">Sin mapa cargado.</p><img id="map-img" class="hidden" onclick="addPin(event)"><div id="pins"></div></div>
+  </section>
+  <section id="tab-timeline" class="hidden">
+    <div class="top-bar"><h1>Cronología Histórica</h1></div>
+    <div class="box" style="margin-bottom:25px;max-width:100%;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <input type="text" id="tl-d" placeholder="Año/Era" style="width:180px;">
+        <input type="text" id="tl-t" placeholder="Título del suceso" style="flex:1;min-width:180px;">
+        <input type="text" id="tl-p" placeholder="Descripción..." style="flex:2;min-width:220px;">
+        <button class="btn-gold" onclick="addTl()">+ Añadir</button>
+      </div>
+    </div>
+    <div id="tl-list" class="timeline"></div>
+  </section>
+</main>
+<script src="script.js"></script>
+</body>
+</html>
