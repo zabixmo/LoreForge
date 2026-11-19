@@ -6,11 +6,156 @@ var worldData = {
   var canStore = true;
   var tempInlineImgs = {};
   var activeFolder = 'Todas';
+  /////////////////////////////////////////
 
+// --- ALMACENAMIENTO DE IMAGENES CON INDEXEDDB ---
+
+var mapDBPromise = null;
+var mapObjectUrl = null;
+
+function openMapDB() {
+    if (!window.indexedDB) {
+        return Promise.reject(
+            new Error('Este navegador no admite IndexedDB.')
+        );
+    }
+
+    if (!mapDBPromise) {
+        mapDBPromise = new Promise(function(resolve, reject) {
+            var request = window.indexedDB.open('LoreForgeMedia', 1);
+
+            request.onupgradeneeded = function() {
+                var db = request.result;
+
+                if (!db.objectStoreNames.contains('images')) {
+                    db.createObjectStore('images');
+                }
+            };
+
+            request.onsuccess = function() {
+                resolve(request.result);
+            };
+
+            request.onerror = function() {
+                reject(request.error);
+            };
+        });
+    }
+
+    return mapDBPromise;
+}
+
+function storeMapImage(blob) {
+    return openMapDB().then(function(db) {
+        return new Promise(function(resolve, reject) {
+            var tx = db.transaction('images', 'readwrite');
+
+            tx.objectStore('images').put(blob, 'worldMap');
+
+            tx.oncomplete = function() {
+                resolve();
+            };
+
+            tx.onerror = function() {
+                reject(tx.error);
+            };
+
+            tx.onabort = function() {
+                reject(tx.error);
+            };
+        });
+    });
+}
+
+function getMapImage() {
+    return openMapDB().then(function(db) {
+        return new Promise(function(resolve, reject) {
+            var tx = db.transaction('images', 'readonly');
+            var request = tx.objectStore('images').get('worldMap');
+
+            request.onsuccess = function() {
+                resolve(request.result || null);
+            };
+
+            request.onerror = function() {
+                reject(request.error);
+            };
+        });
+    });
+}
+// borrar imagen si se carga un zip sin imagen
+function deleteMapImage() {
+  return openMapDB().then(function(db) {
+      return new Promise(function(resolve, reject) {
+          var tx = db.transaction('images', 'readwrite');
+
+          tx.objectStore('images').delete('worldMap');
+
+          tx.oncomplete = function() {
+              resolve();
+          };
+
+          tx.onerror = function() {
+              reject(tx.error);
+          };
+
+          tx.onabort = function() {
+              reject(tx.error);
+          };
+      });
+  });
+}
+
+
+function migrateLegacyMap() {
+  if (!worldData.mapImage) {
+      return renderMap();
+  }
+
+  return fetch(worldData.mapImage)
+      .then(function(response) {
+          if (!response.ok) {
+              throw new Error('No se pudo leer el mapa antiguo.');
+          }
+          return response.blob();
+      })
+      .then(function(blob) {
+          return storeMapImage(blob);
+      })
+      .then(function() {
+          worldData.mapImage = null;
+          saveData();
+          console.log('Mapa antiguo migrado correctamente.');
+          return renderMap();
+      })
+      .catch(function(error) {
+          console.error('Error al migrar el mapa:', error);
+          alert('No se pudo trasladar el mapa antiguo. Se conservarán los datos originales.');
+      });
+}
+
+
+  /////////////////////////////////////////
   try { var s = localStorage.getItem('loreforge_data'); if (s) worldData = JSON.parse(s); }
   catch (e) { canStore = false; document.getElementById('status-txt').innerText = 'Usa Descargar Copia para guardar'; }
-// el guardado de los datos
-  function saveData() { if (canStore) try { localStorage.setItem('loreforge_data', JSON.stringify(worldData)); } catch (e) {} }
+
+// el guardado de los datos (actualizado para avisar de errores al guardar los datos)
+  
+function saveData() {
+  if (!canStore) return;
+
+  try {
+      localStorage.setItem('loreforge_data', JSON.stringify(worldData));
+      document.getElementById('status-txt').innerText = 'Guardado correctamente';
+  } catch (e) {
+      document.getElementById('status-txt').innerText =
+          'Error al guardar: almacenamiento lleno o no disponible';
+
+      console.error('Error al guardar LoreForge:', e);
+      alert('No se han podido guardar los datos. Descarga una copia de seguridad.');
+  }
+}
+
 // el cambio de pestaña en el navegador de la aplicacion
   function switchTab(t) {
     ['wiki','map','timeline'].forEach(function(x) {
@@ -196,39 +341,100 @@ var worldData = {
     document.getElementById('wiki-edit').classList.add('hidden');
     document.getElementById('wiki-list').classList.remove('hidden');
   }
-// funcion para subir el mapa a la aplicacion
-  function uploadMap(e) {
-    var f = e.target.files[0];
-    if (!f) return;
-    var r = new FileReader();
-    r.onload = function(ev) { worldData.mapImage = ev.target.result; worldData.pins = []; saveData(); renderMap(); };
-    r.readAsDataURL(f);
-  }
-// funcion que crea el apartado del mapa mundo
-  function renderMap() {
-    var img = document.getElementById('map-img');
-    var pl = document.getElementById('pins');
-    pl.innerHTML = '';
-    if (worldData.mapImage) {
-      img.src = worldData.mapImage;
-      img.classList.remove('hidden');
-      document.getElementById('map-ph').classList.add('hidden');
-      worldData.pins.forEach(function(p, i) {
-        var el = document.createElement('div');
-        el.className = 'pin'; el.style.left = p.x+'%'; el.style.top = p.y+'%'; el.innerText = '📍 ' + p.label;
-        el.onclick = function(ev) {
-          ev.stopPropagation();
-          var t = worldData.articles.find(function(x){ return x.title.toLowerCase()===p.label.toLowerCase(); });
-          if (t) { switchTab('wiki'); readArt(t.id); } else alert('Marcador: ' + p.label);
-        };
-        el.oncontextmenu = function(ev) {
-          ev.preventDefault();
-          if (confirm('¿Borrar pin?')) { worldData.pins.splice(i,1); saveData(); renderMap(); }
-        };
-        pl.appendChild(el);
+// funcion para subir el mapa a la aplicacion (actualizada para un mejor almacenamiento de la imagen)
+  
+function uploadMap(e) {
+  var f = e.target.files[0];
+  if (!f) return;
+
+  storeMapImage(f)
+      .then(function() {
+          worldData.mapImage = null;
+          worldData.pins = [];
+          saveData();
+          renderMap();
+          console.log('Nuevo mapa guardado correctamente.');
+      })
+      .catch(function(error) {
+          console.error('Error al guardar el mapa:', error);
+          alert('No se pudo guardar el mapa. Comprueba el almacenamiento disponible.');
+      })
+      .finally(function() {
+          e.target.value = '';
       });
-    }
-  }
+}
+
+// funcion que crea el apartado del mapa mundo (actualizada para recuperar la imagen almacenada en el navegador)
+  
+function renderMap() {
+  var img = document.getElementById('map-img');
+  var pl = document.getElementById('pins');
+  var placeholder = document.getElementById('map-ph');
+
+  pl.innerHTML = '';
+
+  getMapImage()
+      .then(function(blob) {
+          if (mapObjectUrl) {
+              URL.revokeObjectURL(mapObjectUrl);
+              mapObjectUrl = null;
+          }
+
+          if (!blob) {
+              img.classList.add('hidden');
+              placeholder.classList.remove('hidden');
+              return;
+          }
+
+          mapObjectUrl = URL.createObjectURL(blob);
+          img.src = mapObjectUrl;
+          img.classList.remove('hidden');
+          placeholder.classList.add('hidden');
+
+          worldData.pins.forEach(function(p, i) {
+              var el = document.createElement('div');
+
+              el.className = 'pin';
+              el.style.left = p.x + '%';
+              el.style.top = p.y + '%';
+              el.innerText = '📍 ' + p.label;
+
+              el.onclick = function(ev) {
+                  ev.stopPropagation();
+
+                  var t = worldData.articles.find(function(x) {
+                      return x.title.toLowerCase() === p.label.toLowerCase();
+                  });
+
+                  if (t) {
+                      switchTab('wiki');
+                      readArt(t.id);
+                  } else {
+                      alert('Marcador: ' + p.label);
+                  }
+              };
+
+              el.oncontextmenu = function(ev) {
+                  ev.preventDefault();
+
+                  if (confirm('¿Borrar pin?')) {
+                      worldData.pins.splice(i, 1);
+                      saveData();
+                      renderMap();
+                  }
+              };
+
+              pl.appendChild(el);
+          });
+      })
+      .catch(function(error) {
+          console.error('Error al recuperar el mapa:', error);
+          placeholder.classList.remove('hidden');
+          placeholder.innerText = 'Error al recuperar el mapa.';
+          img.classList.add('hidden');
+      });
+}
+
 //funcion para añadir pines al mapa
   function addPin(e) {
     var r = e.target.getBoundingClientRect();
@@ -268,24 +474,144 @@ var worldData = {
   }
 
   function delTl(i) { worldData.timeline.splice(i,1); saveData(); renderTl(); }
+ // codigo para exportar los datos (actualizando para descargar un zip son el mapa mundo)
+  
+async function exportData() {
+  try {
+      var zip = new JSZip();
 
-  function exportData() {
-    var a = document.createElement('a');
-    a.href = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(worldData,null,2));
-    a.download = 'mi_mundo.json'; a.click();
+      // Guardar los datos del mundo sin incluir la imagen.
+      zip.file('mi_mundo.json', JSON.stringify(worldData, null, 2));
+
+      // Recuperar la imagen del mapa desde IndexedDB.
+      var mapBlob = await getMapImage();
+
+      if (mapBlob) {
+        var extension = mapBlob.type.split('/')[1] || 'img';
+
+        if (extension === 'jpeg') extension = 'jpg';
+        
+        zip.file('mapa.' + extension, mapBlob);
+      }
+
+      // Generar el archivo ZIP.
+      var contenido = await zip.generateAsync({
+          type: 'blob'
+      });
+
+      // Descargar el ZIP.
+      var url = URL.createObjectURL(contenido);
+      var enlace = document.createElement('a');
+
+      enlace.href = url;
+      enlace.download = 'LoreForge_Copia.zip';
+      enlace.click();
+
+      URL.revokeObjectURL(url);
+
+  } catch (error) {
+      console.error('Error al exportar la copia:', error);
+      alert('No se pudo crear la copia de seguridad.');
   }
-// codigo para cargar los datos del json en la aplicacion
-  function importData(e) {
-    var f = e.target.files[0];
-    if (!f) return;
-    var r = new FileReader();
-    r.onload = function(ev) {
-      try {
-        var d = JSON.parse(ev.target.result);
-        if (d.articles) { worldData = d; saveData(); renderArticles(); renderMap(); renderTl(); alert('¡Cargado!'); }
-      } catch (err) { alert('Archivo no válido.'); }
-    };
-    r.readAsText(f);
+}
+
+// codigo para cargar los datos del json en la aplicacion (ahora tambien del zip)
+  
+async function importData(e) {
+  var f = e.target.files[0];
+  if (!f) return;
+
+  try {
+      var d;
+      var mapBlob = null;
+      var isZip = f.name.toLowerCase().endsWith('.zip');
+
+      if (isZip) {
+          // Abrir el archivo ZIP.
+          var zip = await JSZip.loadAsync(f);
+
+          // Buscar los datos del mundo.
+          var jsonFile = zip.file('mi_mundo.json');
+
+          if (!jsonFile) {
+              throw new Error('El ZIP no contiene mi_mundo.json.');
+          }
+
+          d = JSON.parse(await jsonFile.async('string'));
+
+          // Buscar la imagen del mapa, si existe.
+          var mapName = Object.keys(zip.files).find(function(name) {
+              return /^mapa\./i.test(name) && !zip.files[name].dir;
+          });
+
+          if (mapName) {
+            var extension = mapName.split('.').pop().toLowerCase();
+        
+            var mimeTypes = {
+                png: 'image/png',
+                jpg: 'image/jpeg',
+                jpeg: 'image/jpeg',
+                webp: 'image/webp',
+                gif: 'image/gif',
+                bmp: 'image/bmp',
+                svg: 'image/svg+xml'
+            };
+        
+            var mapBytes = await zip.file(mapName).async('uint8array');
+        
+            mapBlob = new Blob([mapBytes], {
+                type: mimeTypes[extension] || 'application/octet-stream'
+            });
+        }
+
+      } else {
+          // Compatibilidad con copias antiguas JSON.
+          d = JSON.parse(await f.text());
+      }
+
+      // Comprobar que los datos tienen una estructura válida.
+      if (!d || !Array.isArray(d.articles)) {
+          throw new Error('El archivo no contiene datos válidos de LoreForge.');
+      }
+
+      // Evitar errores si faltan estas secciones.
+      if (!Array.isArray(d.pins)) d.pins = [];
+      if (!Array.isArray(d.timeline)) d.timeline = [];
+
+      // Restaurar la imagen del ZIP o borrar la anterior si no existe.
+      if (isZip) {
+          if (mapBlob) {
+              await storeMapImage(mapBlob);
+          } else {
+              await deleteMapImage();
+          }
+      }
+
+      // Sustituir los datos actuales por los importados.
+      worldData = d;
+      saveData();
+
+      // Si el JSON antiguo contiene un mapa en DataURL, migrarlo.
+      if (!isZip && worldData.mapImage) {
+          await migrateLegacyMap();
+      } else {
+          renderMap();
+      }
+
+      activeFolder = 'Todas';
+      renderArticles();
+      renderTl();
+
+      alert('¡Copia de LoreForge restaurada correctamente!');
+
+  } catch (err) {
+      console.error('Error al importar la copia:', err);
+      alert('No se pudo importar el archivo. Comprueba que sea una copia válida.');
+  } finally {
+      e.target.value = '';
   }
+}
+
 
   renderArticles();
+  migrateLegacyMap();

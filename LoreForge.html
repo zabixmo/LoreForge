@@ -16,9 +16,10 @@
   </nav>
   <div class="backup">
     <small id="status-txt" style="color:var(--muted);font-size:0.75rem;">Guardado automático activo</small>
-    <button class="btn-sm" onclick="exportData()">💾 Descargar Copia (.json)</button>
-    <button class="btn-sm" onclick="document.getElementById('imp-file').click()">📂 Cargar Copia</button>
-    <input type="file" id="imp-file" class="hidden" accept=".json" onchange="importData(event)">
+    <button class="btn-sm" onclick="exportData()">💾 Descargar Copia (.json, zip)</button>
+    <button class="btn-sm" onclick="document.getElementById('imp-file').click()">📂 Cargar Copia (zip)</button>
+    <!-- añadiendo zip al input -->
+    <input type="file" id="imp-file" class="hidden" accept=".zip,.json" onchange="importData(event)">
   </div>
 </aside>
 <main>
@@ -97,6 +98,7 @@
     <div id="tl-list" class="timeline"></div>
   </section>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
